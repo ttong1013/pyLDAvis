@@ -14,7 +14,17 @@ from . import prepare as vis_prepare
 
 
 def _extract_data(topic_model, corpus, dictionary, doc_topic_dists=None):
+   """@TT
+   Extract data from passed in topic model.  Sometimes, the dictionary has different dimension from the input
+   topic_model.  This can happen during an online training process where the dictionary can get continuously
+   updated through the training process, i.e., new vocab can be added (but never changed the pre-existing vocab
+   including their sequence).  In this case, we need to augment the topic model matrix dimension to match the
+   dictionary vocabulary by padding zeros for the difference in vocab length.  This works as long as the
+   dictionary has been continuously grown (never gone through reduce/reshuffle process) through the updating
+   process.
+   """
    import gensim
+
 
    if not gensim.matutils.ismatrix(corpus):
       corpus_csc = gensim.matutils.corpus2csc(corpus, num_terms=len(dictionary))
@@ -32,7 +42,7 @@ def _extract_data(topic_model, corpus, dictionary, doc_topic_dists=None):
    term_freqs[term_freqs == 0] = beta
    doc_lengths = corpus_csc.sum(axis=0).A.ravel()
 
-   assert term_freqs.shape[0] == len(dictionary), 'Term frequencies and dictionary have different shape {} != {}'.format(term_freqs.shape[0], len(dictionary))
+   # assert term_freqs.shape[0] == len(dictionary), 'Term frequencies and dictionary have different shape {} != {}'.format(term_freqs.shape[0], len(dictionary))
    assert doc_lengths.shape[0] == len(corpus), 'Document lengths and corpus have different sizes {} != {}'.format(doc_lengths.shape[0], len(corpus))
 
    if hasattr(topic_model, 'lda_alpha'):
@@ -54,7 +64,8 @@ def _extract_data(topic_model, corpus, dictionary, doc_topic_dists=None):
          doc_topic_dists = doc_topic_dists.T.todense()
       doc_topic_dists = doc_topic_dists / doc_topic_dists.sum(axis=1)
 
-   assert doc_topic_dists.shape[1] == num_topics, 'Document topics and number of topics do not match {} != {}'.format(doc_topic_dists.shape[1], num_topics)
+   assert doc_topic_dists.shape[1] == num_topics, \
+       'Document topics and number of topics do not match {} != {}'.format(doc_topic_dists.shape[1], num_topics)
 
    # get the topic-term distribution straight from gensim without
    # iterating over tuples
@@ -62,6 +73,10 @@ def _extract_data(topic_model, corpus, dictionary, doc_topic_dists=None):
        topic = topic_model.lda_beta
    else:
        topic = topic_model.state.get_lambda()
+   topic_vocab_len = topic.shape[1]
+   if topic_vocab_len < len(dictionary):
+       # pad zeros to the new vocab
+       topic = np.concatenate((topic, np.zeros((topic.shape[0], len(dictionary)-topic_vocab_len))), axis=1)
    topic = topic / topic.sum(axis=1)[:, None]
    topic_term_dists = topic[:, fnames_argsort]
 
